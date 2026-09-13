@@ -118,11 +118,11 @@
 <script>
 "use strict";
 /* ── config ─────────────────────────────────────────────────────────────── */
-var APP_VERSION = '0.2';
+var APP_VERSION = '0.3';
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbzGTzkBRTrIIP_tD6sbtOOUmNZkXDdtxPoO4c8fdWt5h3tZFueNSISPv8Q3LWStx73Whw/exec';
 var IS_PREPROD = /\/preprod\//.test(location.pathname);
 var SKEY = 'teamchanges_session';
-var KIND_LABEL = { captain:'New captain', cocaptain:'New co-captain', mailing:'Mailing contact', add:'Add player', drop:'Drop player' };
+var KIND_LABEL = { captain:'New captain', cocaptain:'New co-captain', mailing:'Mailing contact', add:'Add player', drop:'Drop player', name:'Team name' };
 /* ── state ──────────────────────────────────────────────────────────────── */
 var S = { token:null, signedIn:false, firstName:'', member:null, teams:[], sessionName:'', team:null, detail:null,
           kinds:[], A:{}, step:0, view:null, editingId:null };
@@ -251,6 +251,7 @@ function mailingText(m){ if(!m) return 'None on file yet'; return m.name || m.co
 function itemsList(items){
   return '<dl class="review">'+(items||[]).map(function(it){
     var was = it.before ? (it.kind==='mailing' ? it.before.contact_name : (it.kind!=='drop'&&it.kind!=='add' ? it.before.name : '')) : '';
+    if(it.kind==='name') return '<div class="item"><dt>'+esc(KIND_LABEL.name)+'</dt><dd>'+esc((it.after&&it.after.name)||'')+(was?'<small>was '+esc(was)+'</small>':'')+'</dd></div>';
     var v = esc(it.player_name||'')+' <small>#'+esc(it.member_number||'')+(was?(' · was '+esc(was)):'')+(it.kind==='mailing'?' · mail goes to their address on file':'')+(it.note?(' · '+esc(it.note)):'')+'</small>';
     return '<div class="item"><dt>'+esc(KIND_LABEL[it.kind]||it.kind)+'</dt><dd>'+v+'</dd></div>';
   }).join('')+'</dl>';
@@ -287,6 +288,7 @@ function startEdit(r){
     if(it.kind==='captain') A.captain=it.member_number;
     if(it.kind==='cocaptain') A.cocaptain=it.member_number;
     if(it.kind==='mailing') A.mailing=it.member_number;
+    if(it.kind==='name') A.name=(it.after&&it.after.name)||'';
     if(it.kind==='add'){ if(kinds.indexOf('add')<0) kinds.push('add'); A.adds.push({ member_number:it.member_number, name:it.player_name, flags:[] }); }
     if(it.kind==='drop'){ if(kinds.indexOf('drop')<0) kinds.push('drop'); A.drops.push(it.member_number); if(it.note) A.dropNotes[it.member_number]=it.note; }
   });
@@ -305,7 +307,7 @@ function candidates(){ // roster + players being added in this request
 function showWhat(){
   S.view='what'; chrome();
   var g=(S.team&&S.team.gate)||{};
-  var opts=[ ['captain','New captain','Pick a new captain from the roster'], ['cocaptain','New co-captain','Pick a new co-captain from the roster'], ['mailing','Mailing contact','Which player receives the team’s patches and mail'], ['add','Add player(s)','By APA number'], ['drop','Drop player(s)','From the current roster'] ];
+  var opts=[ ['captain','New captain','Pick a new captain from the roster'], ['cocaptain','New co-captain','Pick a new co-captain from the roster'], ['mailing','Mailing contact','Which player receives the team’s patches and mail'], ['name','Team name','Rename the team'], ['add','Add player(s)','By APA number'], ['drop','Drop player(s)','From the current roster'] ];
   app.innerHTML = '<div class="screen"><h2>What do you want to change?</h2><p class="hint">Pick everything that applies — it all goes in one request.</p><div class="chips">'+
     opts.map(function(o){ var dis = (o[0]==='add'||o[0]==='drop') && !g.open; return '<button class="chip" role="button" aria-pressed="'+(S.kinds.indexOf(o[0])>=0?'true':'false')+'" data-k="'+o[0]+'"'+(dis?' disabled':'')+'><span class="tick">✓</span>'+esc(o[1])+'</button>'; }).join('')+'</div>'+
     (!g.open?'<div class="note">Roster adds and drops open '+(g.opens_after?('after '+esc(fmtDay(g.opens_after))):'after week 4')+'. Until then, use the APA app for roster changes.</div>':'')+
@@ -315,7 +317,7 @@ function showWhat(){
   document.getElementById('next').onclick=function(){ if(!S.kinds.length){ document.getElementById('err').textContent='Pick at least one change.'; return; } S.step=0; showStep(); };
 }
 function activeSteps(){
-  var order=['captain','cocaptain','mailing','add','drop'];
+  var order=['captain','cocaptain','mailing','name','add','drop'];
   var steps=order.filter(function(k){ return S.kinds.indexOf(k)>=0; }).map(function(k){ return { id:k }; });
   steps.push({ id:'reason' }); steps.push({ id:'review' });
   return steps;
@@ -325,6 +327,7 @@ function showStep(){
   var st=steps[S.step]; S.view='step'; chrome();
   if(st.id==='captain'||st.id==='cocaptain') return stepPick(st.id);
   if(st.id==='mailing') return stepMailing();
+  if(st.id==='name') return stepName();
   if(st.id==='add') return stepAdd();
   if(st.id==='drop') return stepDrop();
   if(st.id==='reason') return stepReason();
@@ -396,6 +399,17 @@ function stepDrop(){
     S.step++; showStep();
   });
 }
+function stepName(){
+  var cur = (S.team&&S.team.team_name)||'';
+  app.innerHTML = '<div class="screen"><h2>What should the team be called?</h2>'+
+    '<p class="hint">'+(cur?('Currently <b>'+esc(cur)+'</b>. '):'')+'The league office reviews the name before it changes.</p>'+
+    '<label class="fld" for="tname">New team name</label><input id="tname" type="text" maxlength="40" autocomplete="off" value="'+esc(S.A.name||'')+'">'+
+    '<div class="err" id="err"></div><div class="row"><button class="btn ghost" id="back">Back</button><button class="btn primary" id="next">Continue</button></div></div>';
+  nav(null, function(){ var v=document.getElementById('tname').value.replace(/\s+/g,' ').trim(); var e=document.getElementById('err');
+    if(v.length<2||v.length>40){ e.textContent='2–40 characters, please.'; return; }
+    if(v.toLowerCase()===cur.trim().toLowerCase()){ e.textContent='That is already the team’s name.'; return; }
+    S.A.name=v; S.step++; showStep(); });
+}
 function stepReason(){
   app.innerHTML = '<div class="screen"><h2>Why the change?</h2><p class="hint">A sentence is plenty. This goes to the league office with the request.</p>'+
     '<textarea id="reason" maxlength="2000" placeholder="e.g. Sam moved away; Jordan is taking over as captain.">'+esc(S.A.reason||'')+'</textarea>'+
@@ -407,6 +421,7 @@ function buildItems(){
   if(S.kinds.indexOf('captain')>=0&&S.A.captain) items.push({ kind:'captain', member_number:S.A.captain });
   if(S.kinds.indexOf('cocaptain')>=0&&S.A.cocaptain) items.push({ kind:'cocaptain', member_number:S.A.cocaptain });
   if(S.kinds.indexOf('mailing')>=0&&S.A.mailing) items.push({ kind:'mailing', member_number:S.A.mailing });
+  if(S.kinds.indexOf('name')>=0&&S.A.name) items.push({ kind:'name', name:S.A.name });
   if(S.kinds.indexOf('add')>=0) (S.A.adds||[]).forEach(function(a){ items.push({ kind:'add', member_number:a.member_number }); });
   if(S.kinds.indexOf('drop')>=0) (S.A.drops||[]).forEach(function(m){ items.push({ kind:'drop', member_number:m, note:(S.A.dropNotes||{})[m]||'' }); });
   return items;
