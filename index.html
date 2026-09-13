@@ -118,7 +118,7 @@
 <script>
 "use strict";
 /* ── config ─────────────────────────────────────────────────────────────── */
-var APP_VERSION = '0.1';
+var APP_VERSION = '0.2';
 var GAS_URL = 'https://script.google.com/macros/s/AKfycbzGTzkBRTrIIP_tD6sbtOOUmNZkXDdtxPoO4c8fdWt5h3tZFueNSISPv8Q3LWStx73Whw/exec';
 var IS_PREPROD = /\/preprod\//.test(location.pathname);
 var SKEY = 'teamchanges_session';
@@ -245,11 +245,14 @@ function personRow(m, opts){
   var lead = m.role==='Captain'||m.role==='Co-Captain';
   return '<div class="person" style="cursor:default"><div class="who"><b>'+esc(m.name)+(m.nickname?(' <span style="display:inline;font-weight:400;color:var(--muted)">“'+esc(m.nickname)+'”</span>'):'')+'</b><span>#'+esc(m.member_number)+'</span></div><span class="role'+(lead?' lead':'')+'">'+esc(m.role)+'</span></div>';
 }
-function mailingText(m){ if(!m) return 'None on file yet'; return [m.contact_name, m.address_line1, m.address_line2, [m.city, m.state, m.zip].filter(Boolean).join(' ')].filter(Boolean).join(', '); }
+/* Mailing contact is a NAME only — the app never shows an address (the league uses the
+   contact's APA record). */
+function mailingText(m){ if(!m) return 'None on file yet'; return m.name || m.contact_name || 'None on file yet'; }
 function itemsList(items){
   return '<dl class="review">'+(items||[]).map(function(it){
-    var v = it.kind==='mailing' ? mailingText(it.after) : (esc(it.player_name||'')+' <small>#'+esc(it.member_number||'')+(it.before&&it.kind!=='drop'&&it.kind!=='add'?(' · was '+esc(it.before.name||'')):'')+(it.note?(' · '+esc(it.note)):'')+'</small>');
-    return '<div class="item"><dt>'+esc(KIND_LABEL[it.kind]||it.kind)+'</dt><dd>'+(it.kind==='mailing'?esc(v):v)+'</dd></div>';
+    var was = it.before ? (it.kind==='mailing' ? it.before.contact_name : (it.kind!=='drop'&&it.kind!=='add' ? it.before.name : '')) : '';
+    var v = esc(it.player_name||'')+' <small>#'+esc(it.member_number||'')+(was?(' · was '+esc(was)):'')+(it.kind==='mailing'?' · mail goes to their address on file':'')+(it.note?(' · '+esc(it.note)):'')+'</small>';
+    return '<div class="item"><dt>'+esc(KIND_LABEL[it.kind]||it.kind)+'</dt><dd>'+v+'</dd></div>';
   }).join('')+'</dl>';
 }
 function showHub(){
@@ -283,7 +286,7 @@ function startEdit(r){
     if(kinds.indexOf(it.kind)<0 && it.kind!=='add' && it.kind!=='drop') kinds.push(it.kind);
     if(it.kind==='captain') A.captain=it.member_number;
     if(it.kind==='cocaptain') A.cocaptain=it.member_number;
-    if(it.kind==='mailing') A.mailing=it.after||{};
+    if(it.kind==='mailing') A.mailing=it.member_number;
     if(it.kind==='add'){ if(kinds.indexOf('add')<0) kinds.push('add'); A.adds.push({ member_number:it.member_number, name:it.player_name, flags:[] }); }
     if(it.kind==='drop'){ if(kinds.indexOf('drop')<0) kinds.push('drop'); A.drops.push(it.member_number); if(it.note) A.dropNotes[it.member_number]=it.note; }
   });
@@ -302,7 +305,7 @@ function candidates(){ // roster + players being added in this request
 function showWhat(){
   S.view='what'; chrome();
   var g=(S.team&&S.team.gate)||{};
-  var opts=[ ['captain','New captain','Pick a new captain from the roster'], ['cocaptain','New co-captain','Pick a new co-captain from the roster'], ['mailing','Mailing contact','Who receives patches and mail for the team'], ['add','Add player(s)','By APA number'], ['drop','Drop player(s)','From the current roster'] ];
+  var opts=[ ['captain','New captain','Pick a new captain from the roster'], ['cocaptain','New co-captain','Pick a new co-captain from the roster'], ['mailing','Mailing contact','Which player receives the team’s patches and mail'], ['add','Add player(s)','By APA number'], ['drop','Drop player(s)','From the current roster'] ];
   app.innerHTML = '<div class="screen"><h2>What do you want to change?</h2><p class="hint">Pick everything that applies — it all goes in one request.</p><div class="chips">'+
     opts.map(function(o){ var dis = (o[0]==='add'||o[0]==='drop') && !g.open; return '<button class="chip" role="button" aria-pressed="'+(S.kinds.indexOf(o[0])>=0?'true':'false')+'" data-k="'+o[0]+'"'+(dis?' disabled':'')+'><span class="tick">✓</span>'+esc(o[1])+'</button>'; }).join('')+'</div>'+
     (!g.open?'<div class="note">Roster adds and drops open '+(g.opens_after?('after '+esc(fmtDay(g.opens_after))):'after week 4')+'. Until then, use the APA app for roster changes.</div>':'')+
@@ -342,20 +345,14 @@ function stepPick(kind){
   nav(null, function(){ if(!S.A[kind]){ document.getElementById('err').textContent='Pick someone.'; return; } S.step++; showStep(); });
 }
 function stepMailing(){
-  var m = S.A.mailing || S.detail.mailing || {};
-  app.innerHTML = '<div class="screen"><h2>Who should receive the team’s mail?</h2><p class="hint">Patches and league mail go here. Anyone can be the contact — it doesn’t have to be a player.</p>'+
-    '<label class="fld" for="mc_name">Name</label><input id="mc_name" type="text" autocomplete="name" value="'+esc(m.contact_name||'')+'">'+
-    '<label class="fld" for="mc_a1">Street address</label><input id="mc_a1" type="text" autocomplete="address-line1" value="'+esc(m.address_line1||'')+'">'+
-    '<label class="fld" for="mc_a2">Apt / unit (optional)</label><input id="mc_a2" type="text" autocomplete="address-line2" value="'+esc(m.address_line2||'')+'">'+
-    '<div class="two"><div><label class="fld" for="mc_city">City</label><input id="mc_city" type="text" autocomplete="address-level2" value="'+esc(m.city||'')+'"></div><div><label class="fld" for="mc_state">State</label><input id="mc_state" type="text" maxlength="2" autocomplete="address-level1" value="'+esc(m.state||'OR')+'"></div></div>'+
-    '<label class="fld" for="mc_zip">ZIP</label><input id="mc_zip" type="tel" inputmode="numeric" autocomplete="postal-code" value="'+esc(m.zip||'')+'">'+
+  var cur = S.detail.mailing && S.detail.mailing.contact_name;
+  var picked = S.A.mailing||null;
+  app.innerHTML = '<div class="screen"><h2>Who should receive the team’s mail?</h2>'+
+    '<p class="hint">'+(cur?('Currently '+esc(cur)+'. '):'')+'Patches and league mail go to this player at the address on their APA record. Pick from the roster'+((S.A.adds||[]).length?' or the players you are adding':'')+'.</p>'+
+    candidates().map(function(m){ return '<button class="person" role="button" aria-pressed="'+(picked===m.member_number?'true':'false')+'" data-m="'+esc(m.member_number)+'"><span class="box">✓</span><div class="who"><b>'+esc(m.name)+'</b><span>#'+esc(m.member_number)+(m.role&&m.role!=='Member'?(' · '+esc(m.role)):'')+'</span></div></button>'; }).join('')+
     '<div class="err" id="err"></div><div class="row"><button class="btn ghost" id="back">Back</button><button class="btn primary" id="next">Continue</button></div></div>';
-  nav(null, function(){
-    var v=function(id){ return document.getElementById(id).value.trim(); };
-    var mm={ contact_name:v('mc_name'), address_line1:v('mc_a1'), address_line2:v('mc_a2'), city:v('mc_city'), state:v('mc_state').toUpperCase(), zip:v('mc_zip') };
-    if(!mm.contact_name||!mm.address_line1||!mm.city||mm.state.length!==2||!/^\d{5}(-\d{4})?$/.test(mm.zip)){ document.getElementById('err').textContent='Name, street, city, 2-letter state and a 5-digit ZIP are required.'; return; }
-    S.A.mailing=mm; S.step++; showStep();
-  });
+  Array.prototype.forEach.call(app.querySelectorAll('.person'), function(el){ el.onclick=function(){ picked=el.getAttribute('data-m'); S.A.mailing=picked; Array.prototype.forEach.call(app.querySelectorAll('.person'),function(o){ o.setAttribute('aria-pressed','false'); }); el.setAttribute('aria-pressed','true'); }; });
+  nav(null, function(){ if(!S.A.mailing){ document.getElementById('err').textContent='Pick someone.'; return; } S.step++; showStep(); });
 }
 function renderAdded(){
   var el=document.getElementById('added'); if(!el) return;
@@ -409,7 +406,7 @@ function buildItems(){
   var items=[];
   if(S.kinds.indexOf('captain')>=0&&S.A.captain) items.push({ kind:'captain', member_number:S.A.captain });
   if(S.kinds.indexOf('cocaptain')>=0&&S.A.cocaptain) items.push({ kind:'cocaptain', member_number:S.A.cocaptain });
-  if(S.kinds.indexOf('mailing')>=0&&S.A.mailing) items.push({ kind:'mailing', mailing:S.A.mailing });
+  if(S.kinds.indexOf('mailing')>=0&&S.A.mailing) items.push({ kind:'mailing', member_number:S.A.mailing });
   if(S.kinds.indexOf('add')>=0) (S.A.adds||[]).forEach(function(a){ items.push({ kind:'add', member_number:a.member_number }); });
   if(S.kinds.indexOf('drop')>=0) (S.A.drops||[]).forEach(function(m){ items.push({ kind:'drop', member_number:m, note:(S.A.dropNotes||{})[m]||'' }); });
   return items;
