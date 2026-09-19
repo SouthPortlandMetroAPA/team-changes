@@ -236,7 +236,7 @@ function showTeams(){
 function openTeam(t){
   S.team=t; S.view='loading'; chrome(); app.innerHTML=spinScreen('Loading '+(t.team_name||'the team')+'…');
   gas('tc_team', { token:S.token, team_id:t.team_id }).then(function(res){
-    if(!res.ok){ if(/session/i.test(res.error||'')){ handleSessionErr(res.error); return; } app.innerHTML='<div class="screen"><h2>Hmm</h2><p class="hint">'+esc(res.error)+'</p></div>'; return; }
+    if(!res.ok){ if(spmAuth.isAuthErr(res.error)){ handleSessionErr(res.error); return; } app.innerHTML='<div class="screen"><h2>Hmm</h2><p class="hint">'+esc(res.error)+'</p></div>'; return; }
     S.detail=res; S.team=res.team; S.team.gate=res.gate; showHub();
   });
 }
@@ -376,7 +376,7 @@ function stepAdd(){
     look.disabled=true; look.innerHTML='<span class="spin"></span>';
     gas('tc_lookup_member',{ token:S.token, team_id:S.team.team_id, apa:apa }).then(function(res){
       look.disabled=false; look.textContent='Check';
-      if(!res.ok){ if(/session/i.test(res.error||'')){ handleSessionErr(res.error); return; } err.textContent=res.error||'Could not check that number.'; return; }
+      if(!res.ok){ if(spmAuth.isAuthErr(res.error)){ handleSessionErr(res.error); return; } err.textContent=res.error||'Could not check that number.'; return; }
       if(!res.found){ err.textContent=res.error||'Not found.'; return; }
       if(res.on_team){ err.textContent=res.name+' is already on this team.'; return; }
       S.A.adds.push({ member_number:res.member_number, name:res.name, flags:res.flags||[] }); inp.value=''; err.className='err ok'; err.textContent='Added '+res.name+'.'; renderAdded();
@@ -430,7 +430,7 @@ function showReview(){
   S.view='step'; chrome();
   app.innerHTML = '<div class="screen"><h2>Look right?</h2><p class="hint">We’re checking it against the roster…</p>'+spinScreen('Checking…')+'</div>';
   gas('tc_submit',{ token:S.token, team_id:S.team.team_id, reason:S.A.reason, items:buildItems(), request_id:S.editingId||undefined, dry_run:true }).then(function(res){
-    if(!res.ok){ if(/session/i.test(res.error||'')){ handleSessionErr(res.error); return; }
+    if(!res.ok){ if(spmAuth.isAuthErr(res.error)){ handleSessionErr(res.error); return; }
       app.innerHTML='<div class="screen"><h2>One thing to fix</h2><p class="callout" style="margin-top:0">'+esc(res.error)+'</p><div class="row"><button class="btn ghost" id="back">Back</button><button class="btn primary" id="what">Change my answers</button></div></div>';
       document.getElementById('back').onclick=function(){ S.step=Math.max(0,S.step-1); showStep(); }; document.getElementById('what').onclick=showWhat; return; }
     S.view='step'; chrome();
@@ -441,7 +441,7 @@ function showReview(){
     document.getElementById('send').onclick=function(){
       var b=this; b.disabled=true; b.innerHTML='<span class="spin"></span>';
       gas('tc_submit',{ token:S.token, team_id:S.team.team_id, reason:S.A.reason, items:buildItems(), request_id:S.editingId||undefined, source:'teamchanges-web' }).then(function(r2){
-        if(!r2.ok){ b.disabled=false; b.textContent=S.editingId?'Update request':'Send request'; if(/session/i.test(r2.error||'')){ handleSessionErr(r2.error); return; } document.getElementById('err').textContent=r2.error||'Something went wrong. Try again.'; return; }
+        if(!r2.ok){ b.disabled=false; b.textContent=S.editingId?'Update request':'Send request'; if(spmAuth.isAuthErr(r2.error)){ handleSessionErr(r2.error); return; } document.getElementById('err').textContent=r2.error||'Something went wrong. Try again.'; return; }
         showDone(r2.edited);
       });
     };
@@ -460,7 +460,7 @@ function showWithdraw(r){
     '<div class="err" id="err"></div><div class="row"><button class="btn ghost" id="back">Keep it</button><button class="btn primary" id="doW">Withdraw</button></div></div>';
   document.getElementById('back').onclick=showHub;
   document.getElementById('doW').onclick=function(){ var b=this; b.disabled=true; b.innerHTML='<span class="spin"></span>';
-    gas('tc_withdraw',{ token:S.token, request_id:r.id }).then(function(res){ if(!res.ok){ b.disabled=false; b.textContent='Withdraw'; if(/session/i.test(res.error||'')){ handleSessionErr(res.error); return; } document.getElementById('err').textContent=res.error||'Could not withdraw.'; return; } openTeam(S.team); });
+    gas('tc_withdraw',{ token:S.token, request_id:r.id }).then(function(res){ if(!res.ok){ b.disabled=false; b.textContent='Withdraw'; if(spmAuth.isAuthErr(res.error)){ handleSessionErr(res.error); return; } document.getElementById('err').textContent=res.error||'Could not withdraw.'; return; } openTeam(S.team); });
   };
 }
 /* ── session error recovery ─────────────────────────────────────────────── */
