@@ -97,8 +97,19 @@
   .status-pill.applied{ background:#e6f7ec; color:var(--ok); } .status-pill.rejected{ background:#fde2e6; color:#8a1226; } .status-pill.withdrawn{ background:#f1f1f1; color:var(--muted); }
   .preprod-banner{ background:#fff3cd; color:#5a4200; text-align:center; font-weight:700; padding:8px; border-radius:12px; margin-bottom:12px; }
 </style>
+<script src="version.js"></script>
+<style>
+  #updateOverlay{ position:fixed; inset:0; background:rgba(255,255,255,.96); z-index:9999; display:none;
+                  align-items:center; justify-content:center; flex-direction:column; gap:14px;
+                  text-align:center; padding:24px; font-family:system-ui,-apple-system,sans-serif; color:#14161c; }
+  #updateOverlay.show{ display:flex; }
+  #updateOverlay .uo-spin{ width:26px; height:26px; border:3px solid #e5e7eb; border-top-color:#ea002a;
+                           border-radius:50%; animation:uoSpin 1s linear infinite; }
+  @keyframes uoSpin{ to{ transform:rotate(360deg); } }
+</style>
 </head>
 <body>
+  <div id="updateOverlay"><div class="uo-spin"></div><div><b>Updating…</b><br>Grabbing the latest version.</div></div>
 <div class="spm-page">
   <header class="spm-header">
     <h1>Team Changes</h1>
@@ -486,6 +497,47 @@ function boot(){
   });
 }
 boot();
+
+/* ── Auto-updater (reference_deploy.md) ─────────────────────────────────────────────────────────────
+   This app shipped with NO updater, so a fix never reached an open tab until someone reloaded by hand.
+   checkVersion compares apa_core.apps against the running build; pollForDeploy then watches the SERVED
+   version.js and reloads only once it actually changes, because bumping the row before Pages finishes
+   building is what strands tabs on the overlay. */
+var SB_URL  = 'https://dqzbekoaysgaiqljueac.supabase.co';
+var SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRxemJla29heXNnYWlxbGp1ZWFjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzUxNzA5NzgsImV4cCI6MjA5MDc0Njk3OH0.cCdGxZ4zEFzU_r6lWSDeoNWG67Q4MSYCAtpds035dfU';
+var APP_NAME_ROW = 'TeamChanges';
+function cmpVer(a, b) {
+  var pa = String(a).split('.'), pb = String(b).split('.');
+  for (var i = 0; i < Math.max(pa.length, pb.length); i++) {
+    var x = parseInt(pa[i], 10) || 0, y = parseInt(pb[i], 10) || 0;
+    if (x > y) return 1; if (x < y) return -1;
+  }
+  return 0;
+}
+var _versionMismatch = false;
+async function checkVersion() {
+  try {
+    var r = await fetch(SB_URL + '/rest/v1/apps?app_name=eq.' + APP_NAME_ROW + '&select=version', {
+      headers: { apikey: SB_ANON, Authorization: 'Bearer ' + SB_ANON, 'Accept-Profile': 'apa_core' } });
+    var rows = await r.json();
+    var v = rows && rows[0] && rows[0].version;
+    if (v && cmpVer(v, window.APP_VERSION) > 0 && !_versionMismatch) {
+      _versionMismatch = true;
+      document.getElementById('updateOverlay').classList.add('show');
+      pollForDeploy();
+    }
+  } catch (e) {}
+}
+function pollForDeploy() {
+  var t = setInterval(async function () {
+    try {
+      var r = await fetch('version.js?_=' + Date.now(), { cache: 'no-store' });
+      var m = (await r.text()).match(/APP_VERSION\s*=\s*'([^']+)'/);
+      if (m && cmpVer(m[1], window.APP_VERSION) > 0) { clearInterval(t); location.reload(); }
+    } catch (e) {}
+  }, 15000);
+}
+setInterval(checkVersion, 30000);
 </script>
 </body>
 </html>
